@@ -73,7 +73,6 @@ def get_Forecast(nb_day=1):
         print(f"Error : {e}")
         return None
 
-    print(coordinates)
     latitude, longitude, name = coordinates
 
     params = {"latitude": latitude,
