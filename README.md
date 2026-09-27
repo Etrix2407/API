@@ -1,7 +1,7 @@
 # API
 API Météo
 
-Petit script Python en ligne de commande qui récupère les prévisions météo d'une ville via l'API Open-Meteo, en géocodant d'abord le nom de la ville.
+Script Python en ligne de commande qui récupère les prévisions météo d'une ville via l'API Open-Meteo, en géocodant d'abord le nom de la ville.
 
 Fonctionnement
 Demande à l'utilisateur un nombre de jours de prévisions (entre 1 et 16).
