@@ -1,9 +1,11 @@
 """Client pour l'API Open-Meteo (géocodage + prévisions météo).
-
+ 
 Ce module regroupe :
 - les exceptions dédiées à la gestion des erreurs d'appel API,
 - la fonction bas niveau `_get_json` qui effectue les requêtes HTTP,
-- les fonctions métier `get_coordinate` et `get_Forecast`,
+- les fonctions métier `get_coordinate` et `get_forecast`,
+- la fonction d'affichage `display_forecast`,
+- les fonctions de saisie `get_nb_day` et `get_city`,
 - la fonction `run` qui orchestre l'interaction avec l'utilisateur.
 """
 
@@ -111,59 +113,58 @@ def _get_json(url, params):
     except requests.exceptions.RequestException as error:
         raise APIError(f"Erreur réseaux : {error}")
 
-def get_coordinate():
-    """Demande un nom de ville à l'utilisateur et récupère ses coordonnées.
+def get_coordinate(name):
+    """Récupère les coordonnées d'une ville via l'API de géocodage.
 
-    Interroge l'API de géocodage Open-Meteo et retient le premier résultat
-    retourné en cas d'ambiguïté (plusieurs villes homonymes).
-
-    Returns:
-        tuple[float, float, str]: Un triplet (latitude, longitude, nom de la
-            ville) correspondant au premier résultat de la recherche.
-
-    Raises:
-        CityNotFoundError: Si aucune ville ne correspond au nom saisi.
-        APIError: Si l'appel à l'API de géocodage échoue.
-    """
-    name = input("Entrer un nom de ville : ")
-    params = {"name": name}
-
-    data = _get_json(c.GEOCODING_URL, params=params)
-    results = data.get("results")
-    if not results:
-        raise CityNotFoundError(name)
-
-
-    first_result = results[0]
-    return (first_result.get("latitude"), first_result.get("longitude"), first_result.get("name"))
-
-def get_Forecast(nb_day=1):
-    """Récupère et affiche les prévisions météo pour une ville donnée.
-
-    Demande d'abord les coordonnées de la ville via `get_coordinate`, puis
-    interroge l'API de prévisions Open-Meteo pour obtenir les températures
-    min/max de chaque jour et les affiche dans le terminal. Si la
-    géolocalisation échoue, l'erreur est affichée et la fonction s'arrête.
+    Interroge l'API Open-Meteo et retient le premier résultat en cas
+    d'homonymes.
 
     Args:
-        nb_day (int): Nombre de jours de prévisions à récupérer (1 à 16).
-            Vaut 1 par défaut.
+        name (str): Nom de la ville recherchée.
 
     Returns:
-        None: La fonction affiche directement les résultats ; elle retourne
-            None immédiatement en cas d'erreur lors de la géolocalisation.
+        tuple[float, float] | None: Un couple (latitude, longitude), ou None
+            si aucune ville ne correspond au nom.
 
     Raises:
-        APIError: Si l'appel à l'API de prévisions échoue.
+        APIError: Si l'appel à l'API de géocodage échoue.
     """
-    try:
-        coordinates = get_coordinate()
+    
+    params = {"name": name}
 
-    except APIError as e:
-        print(f"Error : {e}")
-        return None
+    city_data = _get_json(c.GEOCODING_URL, params=params)
 
-    latitude, longitude, name = coordinates
+    results = city_data.get("results")
+    if results is not None:
+        first_result = results[0]
+
+        return (first_result.get("latitude"), first_result.get("longitude"))
+    
+    return None
+
+
+
+
+
+def get_forecast(latitude, longitude, nb_day=1):
+    """Récupère les prévisions de températures pour une ville.
+
+    Géocode d'abord la ville via `get_coordinate`, puis interroge l'API de
+    prévisions pour obtenir les températures min/max de chaque jour.
+
+    Args:
+        name (str): Nom de la ville.
+        nb_day (int): Nombre de jours de prévisions (1 à 16). Vaut 1 par défaut.
+
+    Returns:
+        tuple[dict, str] | None: Un couple (daily, unité), où `daily` contient
+            les listes "time", "temperature_2m_max" et "temperature_2m_min",
+            et l'unité est par exemple "°C". Retourne None si la ville
+            est introuvable.
+
+    Raises:
+        APIError: Si l'un des appels à l'API échoue.
+    """
 
     params = {"latitude": latitude,
                 "longitude": longitude,
@@ -175,32 +176,106 @@ def get_Forecast(nb_day=1):
 
     temperature_unit = data.get("daily_units").get("temperature_2m_max")
     daily = data.get("daily")
-    for time, temperature_2m_max, temperature_2m_min in zip(daily.get("time"), daily.get("temperature_2m_max"), daily.get("temperature_2m_min")):
-        print(f"A {name} au coordonées {latitude, longitude} le {time} il {"fait" if c.to_day == time else "fera"} {temperature_2m_max} {temperature_unit} max et {temperature_2m_min} {temperature_unit} min")
+    return daily, temperature_unit
+        
 
+def display_forecast(coordinate, name, nb_day):
+    """Affiche dans le terminal les prévisions d'une ville, jour par jour.
 
+    Les erreurs d'API sont interceptées et affichées au lieu d'être propagées.
 
-def run():
-    """Point d'entrée principal du programme.
-
-    Demande à l'utilisateur un nombre de jours de prévisions valide (entre
-    1 et 16, en redemandant tant que la saisie est invalide), puis lance
-    la récupération et l'affichage des prévisions via `get_Forecast`.
+    Args:
+        latitude (float): Latitude de la ville (utilisée pour l'affichage).
+        longitude (float): Longitude de la ville (utilisée pour l'affichage).
+        name (str): Nom de la ville.
+        nb_day (int): Nombre de jours de prévisions à afficher (1 à 16).
 
     Returns:
         None
     """
+    try:
+        latitude, longitude = coordinate
+        daily, temperature_unit = get_forecast(latitude, longitude, nb_day)
+
+        for time, temperature_2m_max, temperature_2m_min in zip(daily.get("time"), daily.get("temperature_2m_max"), daily.get("temperature_2m_min")):
+                    if temperature_2m_max is not None:
+                        print(f"A {name} au coordonées {latitude, longitude} le {time} il {"fait" if c.to_day == time else "fera"} {temperature_2m_max} {temperature_unit} max et {temperature_2m_min} {temperature_unit} min")
+                    else:
+                        print(f"Prévision impossible en ce moment pour le {time}")
+    except APIError as error:
+        print(f"Erreur : {error}")
+
+def get_nb_day():
+    """Demande à l'utilisateur un nombre de jours de prévisions valide.
+
+    Redemande tant que la saisie n'est pas un entier compris entre 1 et 16.
+
+    Returns:
+        int: Le nombre de jours saisi, entre 1 et 16.
+    """
     nb_day = None
-    while nb_day is None or nb_day > 16 or nb_day < 1:
+    while nb_day is None or not 0 < nb_day < 17:
+        try:
+            nb_day = int(input("Entrer un nombre entre 1 et 16 : "))
+            if not 0 < nb_day < 17:
+                print("Le nombre doit être entre 1 et 16 !")
+        except ValueError:
+            print("Veuillez entrer un nombre entier valide")
+
+    return nb_day
+
+def get_city():
+    """Demande une ville à l'utilisateur jusqu'à ce qu'elle soit trouvée.
+
+    Boucle d'obtention : redemande tant que l'API ne retourne aucune
+    coordonnée pour le nom saisi.
+
+    Returns:
+        tuple[tuple[float, float], str]: Un couple ((latitude, longitude), nom)
+            où `nom` est le nom tel que saisi par l'utilisateur.
+
+    Raises:
+        APIError: Si l'appel à l'API échoue (réseau, timeout, HTTP...).
+    """
+    coordinates = None
+    while coordinates is None:
+        name = input("Entrer un nom de ville : ").strip()
 
         try:
-            nb_day = int(input("Entrez un nombre max 16 : "))
-            if nb_day > 16 or nb_day < 1:
-                print("Le nombre doit être entre 1 et 16.")
-        except ValueError:
-            print("Veuillez entrer un nombre entier valide.")
+            coordinates = get_coordinate(name)
 
-    get_Forecast(nb_day)
+            if coordinates is None:
+                raise CityNotFoundError(name)
+
+    
+
+        except CityNotFoundError:
+            print("Nom invalide ou introuvable : ")
+
+    return (coordinates, name)
+
+
+def run():
+    """Point d'entrée du programme.
+ 
+    Demande le nombre de jours puis la ville, et affiche les prévisions.
+    Les erreurs d'API survenues pendant la saisie de la ville sont affichées.
+ 
+    Returns:
+        None
+    """
+    nb_day = get_nb_day()
+ 
+    try:
+        coordinates, name = get_city()
+    except APIError as error:
+        print(f"Erreur : {error}")
+    else:
+        display_forecast(coordinates, name, nb_day)
+  
+
+
+
 
 
 
